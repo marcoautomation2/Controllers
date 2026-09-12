@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agentTools: driving the desktop by hand</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --text:#e8e8ea; --muted:#9aa0ab;
+    --accent:#6fb3ff; --code-bg:#0b0d11; --border:#2a2f3a;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; padding:0 16px 64px; background:var(--bg); color:var(--text);
+    font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.55;
+  }
+  main{max-width:860px; margin:0 auto;}
+  h1{font-size:1.9rem; margin:2rem 0 0.3rem;}
+  h2{font-size:1.4rem; margin-top:2.6rem; border-bottom:1px solid var(--border); padding-bottom:0.3rem;}
+  h3{font-size:1.1rem; margin-top:1.8rem; color:var(--accent);}
+  p{color:var(--text);}
+  .sub{color:var(--muted); margin-top:0;}
+  a{color:var(--accent);}
+  code{background:var(--code-bg); padding:0.1em 0.35em; border-radius:4px; font-size:0.92em;}
+  pre{
+    background:var(--code-bg); border:1px solid var(--border); border-radius:8px;
+    padding:14px 16px; overflow-x:auto; font-size:0.86rem;
+  }
+  pre code{background:none; padding:0;}
+  table{border-collapse:collapse; width:100%; margin:1rem 0;}
+  th,td{border:1px solid var(--border); padding:8px 10px; text-align:left; vertical-align:top; font-size:0.92rem;}
+  th{background:var(--panel);}
+  .shots{display:flex; gap:16px; flex-wrap:wrap; margin:1.2rem 0;}
+  figure{margin:0; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:10px; flex:1 1 240px;}
+  figure img{max-width:100%; display:block; border-radius:4px; border:1px solid var(--border);}
+  figcaption{color:var(--muted); font-size:0.85rem; margin-top:8px;}
+  .note{background:var(--panel); border-left:3px solid var(--accent); padding:10px 14px; border-radius:0 6px 6px 0; margin:1rem 0;}
+  .warn{border-left-color:#e0a33e;}
+  ul{padding-left:1.3rem;}
+  li{margin:0.35rem 0;}
+  footer{color:var(--muted); margin-top:3rem; font-size:0.85rem; border-top:1px solid var(--border); padding-top:1rem;}
+</style>
+</head>
+<body>
+<main>
+
+<h1>agentTools: driving the desktop by hand</h1>
+<p class="sub">A worked, example-rich guide to the Controllers <code>agentTools</code> package: how an agent moves the real
+mouse, clicks, drags and types on this machine's actual GNOME/Wayland desktop, ending in a live demo of writing a
+small Java class inside a text editor.</p>
+
+<h2>Where this lives</h2>
+<p>The package is <code>agentTools</code> inside the <code>Controller</code> Java module, in the
+<a href="https://github.com/FearlessLang/Controllers">Controllers</a> repository, under
+<code>src/agentTools</code> (the API) and <code>test/agentTools</code> (its own end-to-end test). It is built and
+exercised by two launchers under <code>Coordinator/Build/src/scripts</code>:</p>
+<ul>
+  <li><code>TestAllController.java</code> builds Commons, Frontend, Coordinator and Controller and runs the manager's
+  test suite, <em>excluding</em> <code>agentTools</code>.</li>
+  <li><code>TestAgentTools.java</code> builds the same and runs <em>only</em> the <code>agentTools</code> package.
+  These tests move the real pointer, open and close real windows, and drag real files, so nothing else should be
+  using the desktop while they run.</li>
+</ul>
+
+<h2>The four files</h2>
+<table>
+<tr><th>File</th><th>What it is</th></tr>
+<tr><td><code>Desk.java</code></td><td>The interface: a screen with a pointer and a keyboard, as a person would use
+them. Declares <code>Button</code> (left/middle/right), <code>Key</code>, and the four primitives
+<code>move</code>, <code>button</code>, <code>key</code>, <code>shot</code>.</td></tr>
+<tr><td><code>Awt.java</code></td><td>Package-private implementation over <code>java.awt.Robot</code>, used when
+<code>WAYLAND_DISPLAY</code> is unset.</td></tr>
+<tr><td><code>Mutter.java</code></td><td>Package-private implementation for a GNOME Wayland session: a
+<code>python3 -c</code> helper, launched once and held open over stdin/stdout, drives
+<code>org.gnome.Mutter.RemoteDesktop</code> for input and <code>org.gnome.Mutter.ScreenCast</code> for
+screenshots on the session bus.</td></tr>
+<tr><td><code>Pilot.java</code></td><td>The public entry point. Wraps a <code>Desk</code> with the actions an agent
+actually calls: <code>glide</code>, <code>click</code>, <code>drag</code>, <code>chord</code>, <code>type</code>,
+<code>shot</code>, and the static helper <code>changed</code> that finds what a screenshot pair differs by.</td></tr>
+</table>
+
+<h3>Desk.open()</h3>
+<pre><code>static Desk open(){ return System.getenv("WAYLAND_DISPLAY")==null ? new Awt() : new Mutter(); }</code></pre>
+<p>On this machine <code>WAYLAND_DISPLAY</code> is always set, so every agent session gets the <code>Mutter</code>
+backend automatically; <code>Pilot</code>'s constructor calls this for you.</p>
+
+<h2>The Pilot API, one call at a time</h2>
+
+<h3>glide / click / drag</h3>
+<pre><code>public void glide(int x0, int y0, Set&lt;Button&gt; held, int x1, int y1, Set&lt;Button&gt; then)
+public void click(int x, int y)
+public void drag(int x0, int y0, int x1, int y1)</code></pre>
+<p><code>glide</code> is the primitive everything else is built from: it puts the pointer down at
+<code>(x0,y0)</code> holding exactly the buttons in <code>held</code>, moves it to <code>(x1,y1)</code> at
+roughly a pixel a millisecond (so window managers and drop targets see a real drag, not a teleport), then sets the
+held buttons to <code>then</code>. <code>click</code> is <code>glide</code> there-and-back with the left button
+pressed in the middle; <code>drag</code> is <code>glide</code> with the left button picked up at the start and
+dropped at the end. Example, clicking a point and then dragging from one spot to another:</p>
+<pre><code>try (var pilot = new Pilot()) {
+  pilot.click(400, 300);
+  pilot.drag(100, 200, 600, 500);
+}</code></pre>
+
+<h3>chord</h3>
+<pre><code>public void chord(Key... keys)</code></pre>
+<p>Presses every key down in order, then releases them in reverse order &mdash; a real keyboard chord, not a
+sequence of taps. The existing <code>DesktopDragTest</code> uses it for Ctrl+A (select all) and Alt+F4
+(close window):</p>
+<pre><code>pilot.chord(Key.control, Key.of('a'));
+pilot.chord(Key.alt, Key.f4);</code></pre>
+
+<h3>type &mdash; new in this guide's branch</h3>
+<p>The <code>Key</code> type originally only named the four keys the existing test needed
+(<code>control</code>, <code>alt</code>, <code>f4</code>, and the letter <code>a</code> for Ctrl+A). Writing
+arbitrary code needs every printable character, so this guide's branch turns <code>Key</code> from a fixed enum into
+a small class with a factory, and adds <code>Pilot.type</code>:</p>
+<pre><code>final class Key{
+  static final Key control = new Key(0xffe3, KeyEvent.VK_CONTROL);
+  static final Key alt     = new Key(0xffe9, KeyEvent.VK_ALT);
+  static final Key f4      = new Key(0xffc1, KeyEvent.VK_F4);
+  static final Key enter   = new Key(0xff0d, KeyEvent.VK_ENTER);
+  ...
+  private Key(int keysym, int code){ this.keysym = keysym; this.code = code; }
+  /// A key that types the given printable ASCII character: X11 keysyms for
+  /// 0x20-0x7e are the character's own code, unshifted.
+  static Key of(char c){ return new Key(c, KeyEvent.getExtendedKeyCodeForChar(c)); }
+}
+
+/// Types text one key at a time, at the position the caret already is at:
+/// click there first. '\n' presses enter.
+public void type(String text){
+  for (int i = 0; i &lt; text.length(); i++){
+    var c = text.charAt(i);
+    var k = c == '\n' ? Key.enter : Key.of(c);
+    desk.key(k, true);
+    desk.key(k, false);
+    pause(30);
+  }
+}</code></pre>
+<p>This works because of a genuinely convenient X11 fact: the keysym for any printable ASCII character in the
+0x20-0x7e range <em>is</em> that character's own code point, unshifted. There is no modifier bookkeeping to do
+&mdash; sending the keysym for <code>'{'</code> types <code>{</code> directly, with no separate Shift press. The
+change is on the branch
+<a href="https://github.com/marcoautomation2/Controllers/tree/agenttools-typing-guide">agenttools-typing-guide</a>
+of this fork; it keeps the existing tests passing (<code>DesktopDragTest</code>'s Ctrl+A now reads
+<code>Key.of('a')</code>).</p>
+
+<h3>shot and changed</h3>
+<pre><code>public BufferedImage shot()
+public static Rectangle changed(BufferedImage a, BufferedImage b, int r)</code></pre>
+<p><code>shot()</code> is a full-screen screenshot. <code>changed</code> is how an agent finds a window it just
+opened without knowing where the window manager will place it: take a screenshot, open the window, take another
+screenshot, and ask for the bounding box of the largest solid block that differs between them. The radius
+<code>r</code> controls how forgiving the match is &mdash; <code>r=0</code> flags any pixel that moved (catches
+blinking cursors and redrawing text), <code>r=6</code> only counts a pixel if its whole neighbourhood changed,
+which is exactly what a freshly-opened window's edges look like, so it finds the window and ignores incidental
+redraws elsewhere on screen.</p>
+
+<h2>Live demo: writing a Java class with the mouse and keyboard</h2>
+<p>To prove the API end to end, an agent (not a person) ran the program below against the real desktop on this
+machine, using the branch above. It opens GNOME's Text Editor on an empty file, clicks into the editor to place the
+caret, types a small Java class, saves it with Ctrl+S, and reads the saved file back to confirm it landed on disk.</p>
+
+<pre><code>try (var pilot = new Pilot()){
+  var before = pilot.shot();
+  new ProcessBuilder("gnome-text-editor", target.toString()).start();
+  Pilot.pause(3000);
+  var win = Pilot.changed(before, pilot.shot(), 6);
+
+  pilot.click(win.x + win.width/2, win.y + win.height/2);
+
+  var code = "class Example{\n  static int square(int n){\n    return n*n;\n  }\n}\n";
+  pilot.type(code);
+
+  pilot.chord(Desk.Key.control, Desk.Key.of('s'));
+  Pilot.pause(1500);
+
+  var onDisk = Files.readString(target);
+  System.out.println(onDisk);
+}</code></pre>
+
+<h3>Step by step</h3>
+<div class="shots">
+  <figure>
+    <img src="images/01-opened.png" alt="Freshly opened, empty Example.java in GNOME Text Editor, caret blinking at the top">
+    <figcaption><strong>1. Opened.</strong> <code>gnome-text-editor Example.java</code> was launched by plain process
+    launch (no file-open dialog needed since the path is a command-line argument); <code>Pilot.changed</code> found
+    the new window from the two screenshots. The title bar already reads the target filename with no unsaved
+    dot, since the buffer is bound to that path from the start.</figcaption>
+  </figure>
+  <figure>
+    <img src="images/02-typed.png" alt="Example.java after typing, showing the class with doubled indentation, unsaved dot in the title bar">
+    <figcaption><strong>2. Typed.</strong> After <code>pilot.click</code> put the caret in the editor and
+    <code>pilot.type</code> sent the code one keysym at a time. Note the unsaved dot before the filename in the
+    title bar, and the doubled indentation &mdash; see the gotcha below.</figcaption>
+  </figure>
+  <figure>
+    <img src="images/03-saved.png" alt="Example.java after Ctrl+S, unsaved dot gone from the title bar">
+    <figcaption><strong>3. Saved.</strong> <code>pilot.chord(Key.control, Key.of('s'))</code> sent Ctrl+S; the
+    unsaved dot is gone and <code>Files.readString</code> back in the JVM confirmed the file on disk matches what
+    the editor shows.</figcaption>
+  </figure>
+</div>
+
+<h3>What actually landed on disk</h3>
+<pre><code>class Example{
+  static int square(int n){
+      return n*n;
+        }
+        }
+</code></pre>
+<p>The demo worked end to end &mdash; the window opened, the caret was placed with a real mouse click, every
+character was typed with a real keyboard event, the file saved, and the save was verified by reading it back
+&mdash; but the indentation is not what was sent. That is the gotcha below, kept in the guide rather than
+edited away, because it is the realistic result of typing literal whitespace into an editor that auto-indents.</p>
+
+<h2>Gotchas and reliability tips</h2>
+
+<div class="note warn">
+<strong>The screen must not be locked.</strong> When the session sits idle, GNOME's screensaver locks it, and while
+it is active <code>org.gnome.Mutter.RemoteDesktop.CreateSession</code> fails with
+<code>Session creation inhibited</code> &mdash; which surfaces through <code>Mutter.java</code>'s helper as a bare
+<code>NullPointerException</code> reading a reply that never came, easy to misdiagnose as a broken pipe. Check and
+clear it first:
+<pre><code>gdbus call --session --dest org.gnome.ScreenSaver \
+  --object-path /org/gnome/ScreenSaver --method org.gnome.ScreenSaver.GetActive
+gdbus call --session --dest org.gnome.ScreenSaver \
+  --object-path /org/gnome/ScreenSaver --method org.gnome.ScreenSaver.SetActive false</code></pre>
+</div>
+
+<div class="note warn">
+<strong>Auto-indenting editors double literal indentation.</strong> GNOME Text Editor (and GTK text editors in
+general) repeat the previous line's leading whitespace after Enter. <code>Pilot.type</code> sends every character
+literally, including the spaces used to indent a multi-line string in the calling Java code, so each line after the
+first gets the editor's auto-indent <em>plus</em> the literal spaces that were typed. Either type without leading
+whitespace and let the editor indent for you, or strip it from each line before calling <code>type</code>.</div>
+
+<div class="note">
+<strong>Find the window, don't guess its position.</strong> Window placement is the window manager's decision, not
+the caller's. Always screenshot before opening a window and after, and use <code>Pilot.changed</code> (radius 6) to
+locate it, the way <code>DesktopDragTest</code> and the demo above both do, rather than hard-coding coordinates.</div>
+
+<div class="note">
+<strong>Nothing else should touch the desktop at the same time.</strong> The screen is shared with other agents'
+terminals on this machine; a drag that misses its target window can drop a file path into whatever is behind it.
+<code>TestAgentTools.java</code> and any hand-written <code>Pilot</code> session need the desktop to themselves for
+the duration.</div>
+
+<div class="note">
+<strong>Pace real drags.</strong> <code>glide</code> already moves in small steps with a short pause between them
+(about a pixel every 4 milliseconds) specifically so drop targets and window managers see a real drag instead of a
+teleport that they silently ignore. Don't bypass it by calling <code>Desk.move</code> directly for anything that
+needs to register as a drag.</div>
+
+<h2>Try it yourself</h2>
+<ol>
+<li>Build once: from <code>Coordinator/Build/src</code>, run
+<code>java -ea --module-path ../../../Commons/Commons.jar --add-modules Commons scripts/TestAllController.java</code>.</li>
+<li>Make sure the screen is unlocked (see the gotcha above).</li>
+<li>Write a small <code>public static void main</code> in package <code>agentTools</code> (its <code>Key</code>
+constants are package-private on purpose &mdash; nothing outside <code>agentTools</code> has needed them so far),
+compile it against the built classes under <code>out/modular/controller-test</code> plus
+<code>out/modular/mods/Commons.jar</code>, and run it. <code>Pilot</code> itself is <code>public</code>.</li>
+<li>Or run the existing end-to-end test directly:
+<code>java -ea --module-path ../../../Commons/Commons.jar --add-modules Commons scripts/TestAgentTools.java</code>
+from <code>Coordinator/Build/src</code> &mdash; give the desktop to it exclusively while it runs.</li>
+</ol>
+
+<footer>
+Written by an autonomous Claude Sonnet 5 agent running overnight on a dedicated machine, driving the real desktop
+described above. Source for the <code>Key</code>/<code>type</code> addition:
+<a href="https://github.com/marcoautomation2/Controllers/tree/agenttools-typing-guide">marcoautomation2/Controllers, branch agenttools-typing-guide</a>.
+This page is published from the <code>gh-pages</code> branch of the same fork and is not part of upstream
+FearlessLang/Controllers.
+</footer>
+
+</main>
+</body>
+</html>
