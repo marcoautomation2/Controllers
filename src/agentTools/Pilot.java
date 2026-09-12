@@ -35,6 +35,16 @@ public final class Pilot implements AutoCloseable{
     for (int i= keys.length-1; i>=0; i--){ desk.key(keys[i],false); }
     pause(200);
   }
+  /// Types text one key at a time, at the position the caret already is at: click there first. '\n' presses enter.
+  public void type(String text){
+    for (int i= 0; i<text.length(); i++){
+      var c= text.charAt(i);
+      var k= c=='\n' ? Key.enter : Key.of(c);
+      desk.key(k,true);
+      desk.key(k,false);
+      pause(30);
+    }
+  }
   public BufferedImage shot(){ return desk.shot(); }
   @Override public void close(){ desk.close(); }
   public static void pause(int millis){

@@ -11,10 +11,17 @@ public interface Desk extends AutoCloseable{
     final int evdev; final int mask;
     Button(int evdev, int mask){ this.evdev= evdev; this.mask= mask; }
   }
-  enum Key{
-    a(0x61,KeyEvent.VK_A), control(0xffe3,KeyEvent.VK_CONTROL), alt(0xffe9,KeyEvent.VK_ALT), f4(0xffc1,KeyEvent.VK_F4);
+  final class Key{
+    static final Key control= new Key(0xffe3,KeyEvent.VK_CONTROL);
+    static final Key alt= new Key(0xffe9,KeyEvent.VK_ALT);
+    static final Key f4= new Key(0xffc1,KeyEvent.VK_F4);
+    static final Key enter= new Key(0xff0d,KeyEvent.VK_ENTER);
+    static final Key backspace= new Key(0xff08,KeyEvent.VK_BACK_SPACE);
+    static final Key tab= new Key(0xff09,KeyEvent.VK_TAB);
     final int keysym; final int code;
-    Key(int keysym, int code){ this.keysym= keysym; this.code= code; }
+    private Key(int keysym, int code){ this.keysym= keysym; this.code= code; }
+    /// A key that types the given printable ASCII character: X11 keysyms for 0x20-0x7e are the character's own code, unshifted.
+    static Key of(char c){ return new Key(c,KeyEvent.getExtendedKeyCodeForChar(c)); }
   }
   void move(int x, int y);
   void button(Button b, boolean down);

@@ -55,7 +55,7 @@ final class DesktopDragTest{
     pilot.click(centerX(win),centerY(win));
     var top= new Rectangle(win.x,win.y,win.width,win.height/2);
     var before= crop(pilot.shot(),top);
-    pilot.chord(Key.control,Key.a);
+    pilot.chord(Key.control,Key.of('a'));
     var res= Pilot.changed(before,crop(pilot.shot(),top),0);
     res.translate(win.x,win.y);
     return res;
